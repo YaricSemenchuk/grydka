@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { avgCost, type ProductState } from '../core/ledger';
+import { avgCost, matchProduct, productPayload, type ProductState } from '../core/ledger';
 import { lineTotal, money, moneyInput, parseMoney, parseQty, qty, qtyInput, uid } from '../core/format';
 import { store } from '../core/store';
-import { PRODUCT_CATEGORIES, type Pay, type Unit } from '../core/types';
+import { PRODUCT_CATEGORIES, UNITS, type Pay, type Unit } from '../core/types';
 import { exportProductsXlsx, planImport, templateXlsx, type ImportPlan } from '../excel';
 import { pickFile, saveFile, todayStamp } from '../platform';
 import { Confirm, Icon, Modal, useStore, useToast } from '../ui';
+import { ImportModal } from './ImportModal';
+import { MarkupModal } from './Markup';
 import { SCAN_EVENT, beep, claimScan } from '../scanner';
 import type { Scan } from '../App';
 
@@ -22,8 +24,6 @@ function useModalScan(fn: (code: string) => void, active = true) {
 }
 import { plural } from './Summary';
 
-const UNITS: Unit[] = ['шт', 'уп', 'кг', 'г', 'л'];
-
 export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: boolean; purchaseNonce: number; scan?: Scan | null }) {
   const { ledger } = useStore();
   const toast = useToast();
@@ -35,6 +35,8 @@ export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: 
   const [purchase, setPurchase] = useState<{ pids: string[] } | null>(null);
   const [importPlan, setImportPlan] = useState<ImportPlan | null>(null);
   const [newBarcode, setNewBarcode] = useState<string | undefined>();
+  const [markup, setMarkup] = useState<{ ids?: string[]; title?: string } | null>(null);
+  const [noPriceOnly, setNoPriceOnly] = useState(false);
 
   // скан на сторінці товарів: знайти товар або створити новий з цим штрихкодом
   useEffect(() => {
@@ -60,11 +62,9 @@ export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: 
 
   const isLow = (p: ProductState) => p.min > 0 && p.stock < p.min;
   const list = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return ledger.productList.filter(
-      (p) => (!cat || p.category === cat) && (!lowOnly || isLow(p)) && (!s || p.name.toLowerCase().includes(s) || p.barcode === q.trim()),
-    );
-  }, [ledger, cat, lowOnly, q]);
+    return ledger.productList.filter((p) => (!cat || p.category === cat) && (!lowOnly || isLow(p)) && (!noPriceOnly || !p.sell) && matchProduct(p, q));
+  }, [ledger, cat, lowOnly, noPriceOnly, q]);
+  const noPriceCount = ledger.productList.filter((p) => !p.sell).length;
 
   const all = ledger.productList;
   const stockCost = all.reduce((s, p) => s + (p.stock > 0 ? p.value : 0), 0);
@@ -91,6 +91,9 @@ export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: 
         <div className="row">
           <button className="btn" onClick={doImport}>
             Імпорт з Excel
+          </button>
+          <button className="btn" onClick={() => setMarkup({})}>
+            Націнка
           </button>
           <button className="btn" onClick={() => setEdit('new')}>
             + Новий товар
@@ -127,7 +130,7 @@ export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: 
       <div className="row">
         <label className="search">
           {Icon.search()}
-          <input type="search" aria-label="Пошук товару" placeholder="Пошук за назвою або штрихкодом" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input type="search" aria-label="Пошук товару" placeholder="Пошук за назвою, штрихкодом або артикулом" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
         <button className="btn small" onClick={() => saveFile(`gryadka-tovary-${todayStamp()}.xlsx`, exportProductsXlsx(ledger), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}>
           Експорт в Excel
@@ -148,7 +151,22 @@ export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: 
         <button className="chip warnchip" aria-pressed={lowOnly} onClick={() => setLowOnly(!lowOnly)}>
           Лише ті, що закінчуються
         </button>
+        {noPriceCount > 0 && (
+          <button className="chip warnchip" aria-pressed={noPriceOnly} onClick={() => setNoPriceOnly(!noPriceOnly)}>
+            Без ціни продажу · {noPriceCount}
+          </button>
+        )}
       </div>
+      {noPriceCount > 0 && (
+        <div className="alert row" style={{ justifyContent: 'space-between', padding: '12px 18px' }}>
+          <span>
+            У {noPriceCount} {plural(noPriceCount, 'товару', 'товарів', 'товарів')} не встановлено ціну продажу — їх не можна продати.
+          </span>
+          <button className="btn small primary" onClick={() => setMarkup({})}>
+            Встановити націнку
+          </button>
+        </div>
+      )}
 
       <div className="tablebox">
         {list.length ? (
@@ -173,13 +191,17 @@ export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: 
                   <tr key={p.pid} className={low ? 'low' : ''}>
                     <td className="wrap" style={{ fontWeight: 500 }}>
                       {p.name}
-                      {p.barcode && <div className="muted num" style={{ fontSize: 12, fontWeight: 400 }}>{p.barcode}</div>}
+                      {(p.barcode || p.sku) && (
+                        <div className="muted num" style={{ fontSize: 12, fontWeight: 400 }}>
+                          {[p.sku && `арт. ${p.sku}`, p.barcode].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
                     </td>
                     <td className="muted">{p.category}</td>
                     <td className="r num">{cost ? money(cost) : '—'}</td>
-                    <td className="r num">{money(p.sell)}</td>
-                    <td className="r num">{cost ? `${Math.round(((p.sell - cost) / cost) * 100)}%` : '—'}</td>
-                    <td className={`r num ${p.sell - cost >= 0 ? 'good' : 'warn'}`}>{cost ? money(p.sell - cost, { sign: true }) : '—'}</td>
+                    <td className="r num">{p.sell ? money(p.sell) : <span className="tag expense">немає ціни</span>}</td>
+                    <td className="r num">{cost && p.sell ? `${Math.round(((p.sell - cost) / cost) * 100)}%` : '—'}</td>
+                    <td className={`r num ${p.sell - cost >= 0 ? 'good' : 'warn'}`}>{cost && p.sell ? money(p.sell - cost, { sign: true }) : '—'}</td>
                     <td className={`r num ${low || p.stock < 0 ? 'warn' : ''}`} style={{ fontWeight: low ? 600 : 400 }}>
                       {qty(p.stock)} {p.unit}
                     </td>
@@ -224,38 +246,16 @@ export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: 
       {adjust && <AdjustModal product={adjust} onClose={() => setAdjust(null)} />}
       {purchase && <PurchaseModal initial={purchase.pids} onClose={() => setPurchase(null)} />}
       {importPlan && (
-        <Confirm
-          title="Імпорт товарів"
-          text={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div>
-                Нових товарів: <b>{importPlan.created}</b>, оновити: <b>{importPlan.updated}</b>
-              </div>
-              {importPlan.stockLines > 0 && (
-                <div>
-                  Початкові залишки: <b>{importPlan.stockLines}</b> позицій на суму <b className="num">{money(importPlan.stockValue)}</b> (за закупівельними цінами)
-                </div>
-              )}
-              {importPlan.skipped.length > 0 && (
-                <div className="warn" style={{ fontSize: 13 }}>
-                  Пропущено {importPlan.skipped.length}: {importPlan.skipped.slice(0, 4).join('; ')}
-                  {importPlan.skipped.length > 4 ? '…' : ''}
-                </div>
-              )}
-              <div className="hint" style={{ fontSize: 12 }}>
-                Колонки: Назва, Категорія, Од., Ціна продажу, Ціна закупівлі, Залишок, Мін. залишок, Штрихкод. Товари з такою ж назвою або штрихкодом оновляться.
-              </div>
-            </div>
-          }
-          ok={importPlan.events.length ? 'Імпортувати' : 'Закрити'}
+        <ImportModal
+          plan={importPlan}
           onClose={() => setImportPlan(null)}
-          onOk={async () => {
-            if (!importPlan.events.length) return;
-            await store.addMany(importPlan.events);
-            toast(`Імпортовано: ${importPlan.created + importPlan.updated} товарів`);
+          onDone={(pids, hadNoPrice) => {
+            setImportPlan(null);
+            if (hadNoPrice) setMarkup({ ids: pids, title: 'Націнка для товарів з накладної' });
           }}
         />
       )}
+      {markup && <MarkupModal ids={markup.ids} title={markup.title} onClose={() => setMarkup(null)} />}
     </>
   );
 }
@@ -279,7 +279,8 @@ export function ProductModal({
   const [name, setName] = useState(product?.name || initialName || '');
   const [category, setCategory] = useState(product?.category || '');
   const [unit, setUnit] = useState<Unit>(product?.unit || 'шт');
-  const [sell, setSell] = useState(product ? moneyInput(product.sell) : '');
+  const [sell, setSell] = useState(product?.sell ? moneyInput(product.sell) : '');
+  const [sku, setSku] = useState(product?.sku || '');
   const [min, setMin] = useState(product ? qtyInput(product.min) : '');
   const [barcode, setBarcode] = useState(product?.barcode || initialBarcode || '');
   useModalScan((code) => {
@@ -312,7 +313,7 @@ export function ProductModal({
     const events: Parameters<typeof store.addMany>[0] = [
       {
         type: 'product.upsert',
-        p: { pid, name: name.trim(), category: category.trim() || 'Без категорії', unit, sell: sellK!, min: minM || 0, barcode: barcode.trim() || undefined },
+        p: { pid, name: name.trim(), category: category.trim() || 'Без категорії', unit, sell: sellK!, min: minM || 0, barcode: barcode.trim() || undefined, sku: sku.trim() || undefined },
       },
     ];
     if (!product && sq && sp !== null) events.push({ type: 'purchase', p: { supplier: 'Початкові залишки', items: [{ pid, qty: sq, price: sp }] } });
@@ -384,9 +385,13 @@ export function ProductModal({
             <input value={min} inputMode="decimal" onChange={(ev) => setMin(ev.target.value)} placeholder="10" />
             {e('min')}
           </label>
-          <label className="field" style={{ gridColumn: '1 / -1' }}>
+          <label className="field">
             Штрихкод
             <input value={barcode} onChange={(ev) => setBarcode(ev.target.value)} placeholder="Можна відсканувати сканером" />
+          </label>
+          <label className="field">
+            Артикул постачальника
+            <input value={sku} onChange={(ev) => setSku(ev.target.value)} placeholder="Код з накладної" />
           </label>
           {!product && (
             <>
@@ -417,7 +422,7 @@ export function ProductModal({
           danger
           onClose={() => setAskArchive(false)}
           onOk={async () => {
-            await store.add('product.upsert', { pid: product.pid, name: product.name, category: product.category, unit: product.unit, sell: product.sell, min: product.min, barcode: product.barcode, archived: true });
+            await store.add('product.upsert', { ...productPayload(product), archived: true });
             toast('Товар прибрано з каталогу');
             onClose();
           }}
@@ -480,7 +485,7 @@ function PurchaseModal({ initial, onClose }: { initial: string[]; onClose: () =>
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
-    return ledger.productList.filter((p) => p.barcode === q.trim() || s.split(/\s+/).every((w) => p.name.toLowerCase().includes(w))).slice(0, 6);
+    return ledger.productList.filter((p) => matchProduct(p, s)).slice(0, 6);
   }, [q, ledger]);
 
   function add(pid: string) {

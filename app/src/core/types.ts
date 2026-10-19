@@ -3,7 +3,23 @@
 
 export type ID = string;
 export type Pay = 'cash' | 'card' | 'bank';
-export type Unit = 'шт' | 'уп' | 'кг' | 'г' | 'л';
+export const UNITS = ['шт', 'уп', 'кг', 'г', 'л', 'фл', 'компл', 'наб'] as const;
+export type Unit = (typeof UNITS)[number];
+
+/** Одиниці з накладних постачальників → наші */
+export function normalizeUnit(raw: string, fallback: Unit = 'шт'): Unit {
+  const u = raw.trim().toLowerCase().replace(/[.\s-]+/g, '');
+  if (!u) return fallback;
+  if ((UNITS as readonly string[]).includes(u)) return u as Unit;
+  if (u.startsWith('упак') || u === 'пак' || u === 'пачка') return 'уп';
+  if (u.startsWith('флак')) return 'фл';
+  if (u.startsWith('компл')) return 'компл';
+  if (u.startsWith('наб')) return 'наб';
+  if (u.startsWith('кілог') || u.startsWith('килог')) return 'кг';
+  if (u.startsWith('літр') || u.startsWith('литр')) return 'л';
+  if (u.startsWith('грам')) return 'г';
+  return 'шт'; // шприц-туба, пакет, штука тощо
+}
 
 export interface Line {
   pid: ID;
@@ -20,6 +36,7 @@ export interface Payloads {
     sell: number; // kopecks
     min: number; // milli-units, порог «заканчивается»
     barcode?: string;
+    sku?: string; // артикул / код постачальника
     archived?: boolean;
   };
   purchase: { supplier?: string; note?: string; pay?: Pay; items: Line[] };

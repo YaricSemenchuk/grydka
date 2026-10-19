@@ -19,6 +19,7 @@ export interface ProductState {
   sell: number;
   min: number;
   barcode?: string;
+  sku?: string;
   archived: boolean;
   known: boolean; // была ли карточка (могла прийти позже продажи при синхронизации)
   stock: number; // milli
@@ -90,6 +91,20 @@ function blankProduct(pid: ID): ProductState {
     value: 0,
     lastAvg: 0,
   };
+}
+
+/** Поля картки товару для повторного product.upsert (щоб нічого не загубити) */
+export function productPayload(p: ProductState) {
+  return { pid: p.pid, name: p.name, category: p.category, unit: p.unit, sell: p.sell, min: p.min, barcode: p.barcode, sku: p.sku, archived: p.archived };
+}
+
+/** Пошук товару: назва (усі слова), штрихкод або артикул */
+export function matchProduct(p: ProductState, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (p.barcode === q || (p.sku && p.sku.toLowerCase() === q)) return true;
+  const hay = `${p.name} ${p.sku || ''}`.toLowerCase();
+  return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
 /** Средняя цена за 1 единицу, коп */
@@ -182,6 +197,7 @@ export function buildLedger(events: AnyEnvelope[]): Ledger {
           p.sell = Math.max(0, Math.round(e.p.sell || 0));
           p.min = Math.max(0, Math.round(e.p.min || 0));
           p.barcode = e.p.barcode || undefined;
+          p.sku = e.p.sku || undefined;
           p.archived = !!e.p.archived;
           p.known = true;
           break;

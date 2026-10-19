@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { avgCost, type ProductState } from '../core/ledger';
+import { avgCost, matchProduct, type ProductState } from '../core/ledger';
 import { lineTotal, money, moneyInput, parseMoney, parseQty, qty } from '../core/format';
 import { store } from '../core/store';
 import type { Pay } from '../core/types';
@@ -57,10 +57,9 @@ export function SaleForm({ focusNonce, scan }: { focusNonce: number; scan: Scan 
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
-    const exact = ledger.productList.filter((p) => p.barcode && p.barcode === q.trim());
+    const exact = ledger.productList.filter((p) => (p.barcode && p.barcode === q.trim()) || (p.sku && p.sku.toLowerCase() === s));
     if (exact.length) return exact;
-    const words = s.split(/\s+/);
-    return ledger.productList.filter((p) => words.every((w) => p.name.toLowerCase().includes(w))).slice(0, 7);
+    return ledger.productList.filter((p) => matchProduct(p, s)).slice(0, 7);
   }, [q, ledger]);
 
   function addProduct(p: ProductState) {
@@ -83,7 +82,7 @@ export function SaleForm({ focusNonce, scan }: { focusNonce: number; scan: Scan 
     const p = ledger.products.get(l.pid)!;
     const qm = parseQty(l.qty);
     const pr = parseMoney(l.price);
-    const ok = qm !== null && qm > 0 && pr !== null && pr >= 0;
+    const ok = qm !== null && qm > 0 && pr !== null && pr > 0;
     const total = ok ? lineTotal(qm!, pr!) : 0;
     const cost = ok ? Math.round((avgCost(p) * qm!) / 1000) : 0;
     return { ...l, p, qm: qm || 0, pr: pr || 0, ok, total, cost, short: ok && p.stock < qm! };
@@ -218,7 +217,7 @@ export function SaleForm({ focusNonce, scan }: { focusNonce: number; scan: Scan 
                   ×
                 </button>
               </div>
-              {!l.ok && <div className="warn" style={{ fontSize: 12 }}>Перевірте кількість і ціну</div>}
+              {!l.ok && <div className="warn" style={{ fontSize: 12 }}>{l.pr === 0 && l.p.sell === 0 ? 'У товару немає ціни продажу — вкажіть ціну' : 'Перевірте кількість і ціну'}</div>}
               {l.short && (
                 <div className="warn" style={{ fontSize: 12 }}>
                   На складі лише {qty(l.p.stock)} {l.p.unit} — залишок піде в мінус
