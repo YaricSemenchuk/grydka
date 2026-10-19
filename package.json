@@ -1,0 +1,9 @@
+{
+  "name": "gryadka",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/local.mjs",
+    "demo": "node scripts/local.mjs --demo"
+  }
+}
