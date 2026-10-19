@@ -6,11 +6,25 @@ import { PRODUCT_CATEGORIES, type Pay, type Unit } from '../core/types';
 import { exportProductsXlsx, planImport, templateXlsx, type ImportPlan } from '../excel';
 import { pickFile, saveFile, todayStamp } from '../platform';
 import { Confirm, Icon, Modal, useStore, useToast } from '../ui';
+import { SCAN_EVENT, beep, claimScan } from '../scanner';
+import type { Scan } from '../App';
+
+/** Підписка на скан, поки відкрите модальне вікно */
+function useModalScan(fn: (code: string) => void, active = true) {
+  const ref = useRef(fn);
+  ref.current = fn;
+  useEffect(() => {
+    if (!active) return;
+    const h = (e: Event) => ref.current((e as CustomEvent<string>).detail);
+    window.addEventListener(SCAN_EVENT, h);
+    return () => window.removeEventListener(SCAN_EVENT, h);
+  }, [active]);
+}
 import { plural } from './Summary';
 
 const UNITS: Unit[] = ['шт', 'уп', 'кг', 'г', 'л'];
 
-export function Products({ lowOnly: lowInit, purchaseNonce }: { lowOnly?: boolean; purchaseNonce: number }) {
+export function Products({ lowOnly: lowInit, purchaseNonce, scan }: { lowOnly?: boolean; purchaseNonce: number; scan?: Scan | null }) {
   const { ledger } = useStore();
   const toast = useToast();
   const [cat, setCat] = useState<string | null>(null);
@@ -20,6 +34,24 @@ export function Products({ lowOnly: lowInit, purchaseNonce }: { lowOnly?: boolea
   const [adjust, setAdjust] = useState<ProductState | null>(null);
   const [purchase, setPurchase] = useState<{ pids: string[] } | null>(null);
   const [importPlan, setImportPlan] = useState<ImportPlan | null>(null);
+  const [newBarcode, setNewBarcode] = useState<string | undefined>();
+
+  // скан на сторінці товарів: знайти товар або створити новий з цим штрихкодом
+  useEffect(() => {
+    if (!scan || !claimScan(scan.n)) return;
+    const p = ledger.productList.find((x) => x.barcode === scan.code);
+    if (p) {
+      setCat(null);
+      setLowOnly(false);
+      setQ(scan.code);
+      beep(true);
+    } else {
+      setNewBarcode(scan.code);
+      setEdit('new');
+      beep(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scan?.n]);
 
   useEffect(() => setLowOnly(!!lowInit), [lowInit]);
   useEffect(() => {
@@ -179,7 +211,16 @@ export function Products({ lowOnly: lowInit, purchaseNonce }: { lowOnly?: boolea
         Собівартість рахується за середньою ціною закупівлі: якщо нова партія прийшла дорожче, ціна перерахується автоматично.
       </div>
 
-      {edit && <ProductModal product={edit === 'new' ? null : edit} onClose={() => setEdit(null)} />}
+      {edit && (
+        <ProductModal
+          product={edit === 'new' ? null : edit}
+          initialBarcode={edit === 'new' ? newBarcode : undefined}
+          onClose={() => {
+            setEdit(null);
+            setNewBarcode(undefined);
+          }}
+        />
+      )}
       {adjust && <AdjustModal product={adjust} onClose={() => setAdjust(null)} />}
       {purchase && <PurchaseModal initial={purchase.pids} onClose={() => setPurchase(null)} />}
       {importPlan && (
@@ -220,7 +261,19 @@ export function Products({ lowOnly: lowInit, purchaseNonce }: { lowOnly?: boolea
 }
 
 /* ---------- картка товару ---------- */
-export function ProductModal({ product, onClose, onSaved, initialName }: { product: ProductState | null; onClose: () => void; onSaved?: (pid: string) => void; initialName?: string }) {
+export function ProductModal({
+  product,
+  onClose,
+  onSaved,
+  initialName,
+  initialBarcode,
+}: {
+  product: ProductState | null;
+  onClose: () => void;
+  onSaved?: (pid: string) => void;
+  initialName?: string;
+  initialBarcode?: string;
+}) {
   const { ledger } = useStore();
   const toast = useToast();
   const [name, setName] = useState(product?.name || initialName || '');
@@ -228,7 +281,11 @@ export function ProductModal({ product, onClose, onSaved, initialName }: { produ
   const [unit, setUnit] = useState<Unit>(product?.unit || 'шт');
   const [sell, setSell] = useState(product ? moneyInput(product.sell) : '');
   const [min, setMin] = useState(product ? qtyInput(product.min) : '');
-  const [barcode, setBarcode] = useState(product?.barcode || '');
+  const [barcode, setBarcode] = useState(product?.barcode || initialBarcode || '');
+  useModalScan((code) => {
+    setBarcode(code);
+    beep(true);
+  });
   const [startQty, setStartQty] = useState('');
   const [startPrice, setStartPrice] = useState('');
   const [tried, setTried] = useState(false);
@@ -391,6 +448,23 @@ function PurchaseModal({ initial, onClose }: { initial: string[]; onClose: () =>
   const [note, setNote] = useState('');
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState<string | null>(null);
+  const [creatingCode, setCreatingCode] = useState<string | undefined>();
+
+  // скан у вікні надходження: додати рядок або створити новий товар
+  useModalScan(
+    (code) => {
+      const p = store.getSnapshot().ledger.productList.find((x) => x.barcode === code);
+      if (p) {
+        add(p.pid);
+        beep(true);
+      } else {
+        setCreatingCode(code);
+        setCreating('');
+        beep(false);
+      }
+    },
+    creating === null,
+  );
   const [tried, setTried] = useState(false);
   const qtyRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [focusPid, setFocusPid] = useState<string | null>(initial[0] || null);
@@ -581,7 +655,18 @@ function PurchaseModal({ initial, onClose }: { initial: string[]; onClose: () =>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Номер накладної тощо" />
         </label>
       </Modal>
-      {creating !== null && <ProductModal product={null} initialName={creating} onClose={() => setCreating(null)} onSaved={(pid) => add(pid)} />}
+      {creating !== null && (
+        <ProductModal
+          product={null}
+          initialName={creating}
+          initialBarcode={creatingCode}
+          onClose={() => {
+            setCreating(null);
+            setCreatingCode(undefined);
+          }}
+          onSaved={(pid) => add(pid)}
+        />
+      )}
     </>
   );
 }

@@ -4,6 +4,9 @@ import { lineTotal, money, moneyInput, parseMoney, parseQty, qty } from '../core
 import { store } from '../core/store';
 import type { Pay } from '../core/types';
 import { useStore, useToast } from '../ui';
+import { beep, claimScan } from '../scanner';
+import type { Scan } from '../App';
+import { ProductModal } from './Products';
 
 interface CartLine {
   pid: string;
@@ -11,7 +14,7 @@ interface CartLine {
   price: string;
 }
 
-export function SaleForm({ focusNonce }: { focusNonce: number }) {
+export function SaleForm({ focusNonce, scan }: { focusNonce: number; scan: Scan | null }) {
   const { ledger } = useStore();
   const toast = useToast();
   const [q, setQ] = useState('');
@@ -21,6 +24,31 @@ export function SaleForm({ focusNonce }: { focusNonce: number }) {
   const [pay, setPay] = useState<Pay>('cash');
   const [busy, setBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [unknown, setUnknown] = useState<string | null>(null);
+  const [creating, setCreating] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // скан штрихкоду: знайшли — додаємо в чек (повторний скан = +1), ні — пропонуємо створити товар
+  useEffect(() => {
+    if (!scan || !claimScan(scan.n)) return;
+    const p = store.getSnapshot().ledger.productList.find((x) => x.barcode === scan.code);
+    if (p) {
+      addProduct(p);
+      setUnknown(null);
+      setFlash(p.pid);
+      beep(true);
+    } else {
+      setUnknown(scan.code);
+      beep(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scan?.n]);
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 700);
+    return () => clearTimeout(t);
+  }, [flash]);
 
   useEffect(() => {
     searchRef.current?.focus();
@@ -145,10 +173,38 @@ export function SaleForm({ focusNonce }: { focusNonce: number }) {
         </div>
       )}
 
+      {unknown && (
+        <div className="alert" style={{ padding: '10px 14px' }} role="alert">
+          <div style={{ fontSize: 14 }}>
+            Штрихкод <b className="num">{unknown}</b> не знайдено в каталозі
+          </div>
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn small" onClick={() => setCreating(unknown)}>
+              Створити товар
+            </button>
+            <button className="btn small" onClick={() => setUnknown(null)}>
+              Закрити
+            </button>
+          </div>
+        </div>
+      )}
+      {creating && (
+        <ProductModal
+          product={null}
+          initialBarcode={creating}
+          onClose={() => setCreating(null)}
+          onSaved={(pid) => {
+            const p = store.getSnapshot().ledger.products.get(pid);
+            if (p) addProduct(p);
+            setUnknown(null);
+          }}
+        />
+      )}
+
       {lines.length > 0 ? (
         <div className="cart">
           {lines.map((l, i) => (
-            <div key={l.pid} className="cart-item">
+            <div key={l.pid} className={`cart-item${flash === l.pid ? ' flash' : ''}`}>
               <div className="cart-line">
                 <span className="name" title={l.p.name}>
                   {l.p.name}
@@ -173,7 +229,7 @@ export function SaleForm({ focusNonce }: { focusNonce: number }) {
         </div>
       ) : (
         <div className="hint" style={{ fontSize: 13 }}>
-          Знайдіть товар за назвою або відскануйте штрихкод. Enter — додати, ↑↓ — вибір.
+          Відскануйте штрихкод — товар одразу додасться в чек (повторний скан — ще +1 шт). Або знайдіть за назвою: Enter — додати, ↑↓ — вибір.
         </div>
       )}
 

@@ -5,6 +5,7 @@ import { store } from '../core/store';
 import { PAY_LABEL } from '../core/types';
 import { Confirm, Icon, Modal, PeriodPicker, periodTitle, usePeriod, useStore, useToast } from '../ui';
 import { SaleForm } from './SaleForm';
+import type { Scan } from '../App';
 
 const KIND_LABEL: Record<OpKind, string> = { sale: 'Продаж', return: 'Повернення', purchase: 'Закупівля', expense: 'Витрата', adjust: 'Коригування' };
 const FILTERS: [OpKind | 'all', string][] = [
@@ -16,7 +17,7 @@ const FILTERS: [OpKind | 'all', string][] = [
   ['adjust', 'Списання'],
 ];
 
-export function Operations({ focusNonce }: { focusNonce: number }) {
+export function Operations({ focusNonce, scan }: { focusNonce: number; scan: Scan | null }) {
   const { ledger } = useStore();
   const { value, setValue, range } = usePeriod('day');
   const [kind, setKind] = useState<OpKind | 'all'>('all');
@@ -130,7 +131,7 @@ export function Operations({ focusNonce }: { focusNonce: number }) {
             деталі, оформити повернення або скасувати помилкову операцію.
           </div>
         </div>
-        <SaleForm focusNonce={focusNonce} />
+        <SaleForm focusNonce={focusNonce} scan={scan} />
       </div>
       {current && <OpDetails op={current} onClose={() => setOpen(null)} />}
     </>

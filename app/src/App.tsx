@@ -8,6 +8,12 @@ import { Expenses } from './pages/Expenses';
 import { Reports } from './pages/Reports';
 import { STATUS_TEXT, Sync } from './pages/Sync';
 import { Onboarding } from './pages/Onboarding';
+import { SCAN_EVENT, useScanner } from './scanner';
+
+export interface Scan {
+  code: string;
+  n: number;
+}
 
 export type Page = 'summary' | 'ops' | 'products' | 'expenses' | 'reports' | 'sync';
 export type Go = (page: Page, opts?: { focusSale?: boolean; newExpense?: boolean; lowOnly?: boolean }) => void;
@@ -34,6 +40,18 @@ function Shell() {
   const [page, setPage] = useState<Page>('summary');
   const [nonce, setNonce] = useState({ sale: 0, expense: 0, purchase: 0 });
   const [lowOnly, setLowOnly] = useState(false);
+  const [scan, setScan] = useState<Scan | null>(null);
+
+  // сканер штрихкодів працює з будь-якого екрана
+  useScanner((code) => {
+    if (!settings.onboarded) return;
+    if (document.querySelector('.overlay')) {
+      window.dispatchEvent(new CustomEvent(SCAN_EVENT, { detail: code }));
+      return;
+    }
+    if (page !== 'products') setPage('ops');
+    setScan((s) => ({ code, n: (s?.n || 0) + 1 }));
+  });
 
   const go: Go = (p, opts = {}) => {
     setPage(p);
@@ -104,8 +122,8 @@ function Shell() {
       </aside>
       <main className="main">
         {page === 'summary' && <Summary go={go} />}
-        {page === 'ops' && <Operations focusNonce={nonce.sale} />}
-        {page === 'products' && <Products lowOnly={lowOnly} purchaseNonce={nonce.purchase} />}
+        {page === 'ops' && <Operations focusNonce={nonce.sale} scan={scan} />}
+        {page === 'products' && <Products lowOnly={lowOnly} purchaseNonce={nonce.purchase} scan={scan} />}
         {page === 'expenses' && <Expenses focusNonce={nonce.expense} />}
         {page === 'reports' && <Reports />}
         {page === 'sync' && <Sync />}
