@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Gryadka",
+  "mainBinaryName": "Gryadka",
+  "version": "1.0.0",
+  "identifier": "ua.gryadka.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Грядка — облік магазину насіння",
+        "width": 1366,
+        "height": 860,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis", "dmg", "app"],
+    "publisher": "Gryadka",
+    "copyright": "© 2026",
+    "category": "Business",
+    "shortDescription": "Облік надходжень і чистого прибутку для магазину насіння",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "wix": { "language": "uk-UA" },
+      "nsis": { "languages": ["Ukrainian"], "installMode": "currentUser" }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

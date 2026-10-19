@@ -1,0 +1,26 @@
+# Запуск на сервері:  cp .env.example .env  →  заповнити  →  docker compose up -d
+services:
+  gryadka:
+    build: .
+    restart: unless-stopped
+    environment:
+      SHOP_KEY: ${SHOP_KEY:?Задайте SHOP_KEY у файлі .env}
+      SHOP_NAME: ${SHOP_NAME:-Магазин насіння}
+    volumes:
+      - ./data:/data
+
+  # HTTPS-сертифікат від Let's Encrypt отримується автоматично
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command: caddy reverse-proxy --from ${DOMAIN:?Задайте DOMAIN у файлі .env} --to gryadka:8787
+    volumes:
+      - caddy_data:/data
+    depends_on:
+      - gryadka
+
+volumes:
+  caddy_data:
