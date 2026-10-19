@@ -14,7 +14,6 @@ ENV STATIC_DIR=/srv/web \
     DATA_DIR=/data \
     PORT=8787 \
     NODE_ENV=production
-VOLUME /data
 EXPOSE 8787
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:8787/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:${PORT}/api/health || exit 1
 CMD ["node", "--no-warnings=ExperimentalWarning", "server/server.mjs"]

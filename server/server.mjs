@@ -7,6 +7,7 @@
 //   PORT       — порт, по умолчанию 8787
 //   DATA_DIR   — папка для базы и резервных копий, по умолчанию ./data
 //   STATIC_DIR — собранная веб-версия, по умолчанию ../app/dist
+//   DEMO_DATA  — 1: если база пустая, заполнить демо-данными (для показа заказчику)
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -14,11 +15,12 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { spawn } from 'node:child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
 const SHOP_KEY = process.env.SHOP_KEY || '';
-const SHOP_NAME = process.env.SHOP_NAME || 'Магазин семян';
+const SHOP_NAME = process.env.SHOP_NAME || 'Магазин насіння';
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(here, 'data'));
 const STATIC_DIR = path.resolve(process.env.STATIC_DIR || path.join(here, '..', 'app', 'dist'));
 const KEEP_BACKUPS = 30;
@@ -212,6 +214,10 @@ setInterval(backup, 24 * 60 * 60 * 1000).unref();
 
 server.listen(PORT, () => {
   console.log(`Грядка: сервер запущен на http://localhost:${PORT} (данные: ${DATA_DIR})`);
+  if (process.env.DEMO_DATA === '1' && countAll.get().n === 0) {
+    console.log('База пустая и DEMO_DATA=1 — заполняю демо-данными…');
+    spawn(process.execPath, [path.join(here, 'demo-data.mjs'), `http://127.0.0.1:${PORT}`, SHOP_KEY], { stdio: 'inherit' });
+  }
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
